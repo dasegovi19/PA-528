@@ -1,0 +1,197 @@
+---
+title: "Problem set 7: Education and wages"
+author: "David Segovia"
+date: "11-19/21"
+output: 
+  html_document: 
+    toc: yes
+  pdf_document: 
+    latex_engine: xelatex
+    toc: yes
+  word_document: 
+    toc: yes
+---
+
+---
+
+```{r setup, warning=FALSE, message=FALSE}
+library(tidyverse)     # For ggplot, mutate(), filter(), and friends
+library(broom)         # For converting models to data frames
+library(estimatr)      # For lm_robust() and iv_robust()
+library(modelsummary)  # For showing side-by-side regression tables
+```
+
+
+# Task 1: Education, wages, and kids
+
+Let's look once again at the effect of education on earnings. You'll use data from the 1976 Current Population Survey run by the US Census. The data is available as `wage` in the **wooldridge** R package---here is a subset of variables but are renamed. There are three columns:
+
+| Variable name  | Description                                | 
+| -------------- | ------------------------------------------ |
+| `wage`         | Average hourly earnings (in 1976 dollars)  |
+| `education`    | Years of education                         |
+| `n_kids`       | Number of dependents living at home        |
+
+You're interested in estimating $\beta_1$ in:
+
+$$
+\text{Wage}_i = \beta_0 + \beta_1 \text{Education}_i + \epsilon_i
+$$
+
+However, there is an issue with omitted variable bias and endogeneity. Instrumental variables can potentially help address the endogeneity.
+
+## Step 1
+
+Load and look at the dataset
+
+```{r load-wage-data, message=FALSE}
+wages <- read_csv("wages.csv")
+```
+
+## Step 2
+
+We need an instrument for education, since part of it is endogenous. Do you think the variable `n_kids` (the number of children) would be a valid instrument? Does it meet the three requirements of a valid instrument? (Whether they (1) have *relevance*, (2) meet the *excludability* assumption, and (3) meet the *exogeneity* assumption.)
+
+
+Answer: In terms of relevance, I think that the number of children does meet this because it does affect one's educational level. It can prevent people from going to school if they are forced to work to take care of their kid. So yes, this meets the relevance assumption.
+
+For excludability, it makes sense that the number of kids is related only through the wages but this is really hard to prove. In order to prove that the number of kids impacts wages only through education will be hard to prove, so I don't think it meets this assumption.
+
+For exogeneity, it is uncertain whether the number of kids variable is correlated with other endogenous variables in the model. I think that this variable can be correlated with other missing variables such as demographics- Black and Latino families are likely to have more kids, and demographics plays a huge role in one's wages. 
+
+
+Explain why it passes or fails each of the three requirements for a valid instrument. Test the requirements where possible using scatterplots and regression.
+
+
+Relevance
+```{r}
+
+
+relevance <- lm(education ~ n_kids, data = wages)
+summary(relevance)
+glance(relevance)
+
+
+```
+
+```{r}
+ggplot(wages, aes(x = n_kids, y = education)) + 
+  geom_point() + geom_smooth(method = "lm")
+
+
+
+```
+
+
+
+The F-statistic is 25.46, and this is above 10! It is both significant and the line looks OK. So relevance assumption is met, but I don't feel too confident about this.
+
+
+Exclusion requirement is hard to see- we need to see if there is a relationship between number of kids and wages
+
+```{r}
+ggplot(wages, aes(x = n_kids, y = wage)) + 
+  geom_point() + geom_smooth(method = "lm")
+
+
+
+
+```
+
+```{r}
+cor.test(wages$n_kids, wages$wage)
+```
+
+
+This requirement is not met, there is no correlation.
+
+
+We cannot test for exogeneity since there is no other variables other than wage and number of kids in the model. Overall, I think that the number of kids is not a good instrument.
+
+
+
+## Step 3
+
+Assume that the number of children is a valid instrument (regardless of whatever you concluded earlier). Using the number of children (`n_kids`) as an instrument for education (`education`), estimate the effect of education on wages via two-stage least squares (2SLS) instrumental variables (IV).
+
+Do this by hand: create a first stage model, extract the predicted education, and use predicted education in the second stage.
+
+Interpret the coefficient that gives the effect of education on wages ($\beta_1$) and its significance.
+
+Manually
+
+```{r}
+
+firststage <- lm(education ~ n_kids, data= wages)
+
+prediction <- augment_columns(firststage, wages) %>% rename(educ_fitted = .fitted)
+head(prediction)
+
+
+secondstage <- lm(wage ~ educ_fitted, data = prediction)
+tidy(secondstage)
+
+```
+
+
+one step
+
+```{r}
+
+model <- iv_robust(wage ~ education | n_kids, data = wages)
+tidy(model)
+
+
+
+```
+
+
+
+
+(Remember that you can also use the `iv_robust()` function from the **estimatr** package to run IV/2SLS models in one step with: `iv_robust(y ~ x | z, data = data)`, where `y` is the outcome, `x` is the policy/program, and `z` is the instrument. Try doing this to check your manual two-stage model.)
+
+Education co-efficient interpretation: every year of education increases wages by about 0.33 in hourly earnings.
+
+
+
+
+## Step 4
+
+Run a naive model predicting the effect of education on wages (i.e. without any instruments). How does this naive model compare with the IV model? 
+
+
+naive model
+
+```{r}
+
+naive_model <- lm(wage ~ education, data = wages)
+summary(naive_model)
+
+
+```
+
+The naive model's coefficient is 0.54, this is higher and overestimates the effect of education on wages because of omitted variable bias.There is endogenity at play here- variables in the model likely correlate with education
+
+
+Show the results side-by-side here:
+
+```{r}
+modelsummary(list("OLS" = naive_model, "2SLS(by hand)" = secondstage, "2SLS(automatic)" = model), 
+             gof_omit = "IC|Log|Adj|p\\.value|statistic|se_type",
+             stars = TRUE )
+
+
+
+```
+
+
+
+
+## Step 5
+
+Explain which estimates (OLS vs. IV/2SLS) you would trust more (or why you distrust both)
+
+The  OLS model likely over-estimates the effect of education on wages due to omitted variable bias. The 2SLS model's coefficient of 0.33 at least removes the endogenous part of education and only has the exogenous part of education's effect on wages. However, the 2SLS model also does not have a good instrument, and the co-efficient of education is not significant.
+
+Since the OLS model has education's coefficient both significant and the R^2 value is 2 points higher than the 2SLS model, I would trust the OLS model a little more. I would prefer multivariate regression model but there are not enough variables in the model to run this model.
+
