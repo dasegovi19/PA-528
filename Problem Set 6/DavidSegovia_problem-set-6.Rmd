@@ -1,0 +1,345 @@
+---
+title: "Problem set 6: Regression discontinuity approach"
+author: "David Segovia"
+date: "11/14/21"
+output: 
+  html_document: 
+    toc: yes
+  pdf_document: 
+    latex_engine: xelatex
+    toc: yes
+  word_document: 
+    toc: yes
+---
+
+---
+
+There is substantial research and evidence that [class attendance has a positive and significant effect on student performance](http://graphics8.nytimes.com/packages/pdf/nyregion/20110617attendancereport.pdf). Because of this, state and local government agencies and school districts have designed programs and policies that incentivize students to not miss school days. 
+
+Existing research has used a range of methods to test the relationship between attendance programs and student performance, including [simple regression analysis](https://dx.doi.org/10.1016/j.sbspro.2016.07.051), [randomized experiments](https://dx.doi.org/10.3200/JECE.39.3.213-227), and [regression discontinuity approaches](https://people.ucsc.edu/~cdobkin/Papers/2010%20Skipping%20class%20in%20college%20and%20exam%20performance%20Evidence%20from%20a%20regression%20discontinuity%20classroom%20experiment.pdf).
+
+In this assignment, you will use regression discontinuity approaches to measure the effect of a hypothetical program on hypothetical student grades (this data is 100% fake). 
+
+In this simulated program, high school students who have less than 80% attendance during their junior year (11th grade) are assigned to a mandatory school attendance program during their senior year (12th grade). This program requires them to attend school and also provides them with additional support and tutoring to help them attend and remain in school. At the end of their senior year, students take a final test to assess their overall learning in high school.
+
+The dataset provided contains four columns:
+
+- `id`: A randomly assigned student ID number
+- `attendance`: The proportion of days of school attended during a student's junior year (ranges from 0 to 100)
+- `treatment`: Binary variable indicating if a student was assigned to the attendance program during their senior year
+- `grade`: A student's final test grade at the end of their senior year
+
+
+```{r setup, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(rdrobust)
+library(rddensity)
+library(broom)
+library(modelsummary)
+
+library(here)
+
+program <- read_csv("attendance_program.csv")
+
+
+```
+
+
+# Step 1: Determine if process of assigning treatment is rule-based
+
+**Was assignment to this program based on an arbitrary rule? Is it a good candidate for a regression discontinuity approach? Why or why not?**
+
+Yes, in order to join the mandatory student attendance program, students have to have less than 80% attendance during their junior year. There is a clear 80-point rule, so participating in the  program is rule based. 
+
+
+
+# Step 2: Determine if the design is fuzzy or sharp
+
+Make a plot that shows the running variable (`attendance`) on the x-axis and the program indicator variable (`treatment`) on the y-axis. Show the relationship using points (`geom_point`) and color the points by `treatment`.
+
+**How strict was the application of the rule? Did any students with attendance above 80% get into the attendance program, or did any students with attendance under 80% not get into the program? Is there a sharp difference in treatment at the cutpoint?**
+
+```{r}
+
+# Dot plot with attendance on the x-axis and treatment on the y-axis
+
+ggplot(program, aes(x = attendance, y = treatment, color = treatment)) + 
+  geom_point( size = 0.5, alpha = 0.5, 
+              position = position_jitter(width = 0, height = 0.25, seed = 1234)) + 
+  
+  geom_vline(xintercept = 80) + 
+  
+  labs(x = "Attendance",  y = "Participated in school attendance program") + 
+  
+  guides(color = FALSE)
+
+
+
+
+```
+
+
+
+
+```{r}
+program %>%
+  group_by(treatment, attendance<= 80) %>%
+  summarize(count = n())
+```
+
+It seems to be very strict. Students above 80% did not get to participate in the program and students below 80% attendance are all in the program.
+
+
+
+
+
+# Step 3: Check for discontinuity in running variable around cutpoint
+
+Next, you should check that there was no manipulation in the running variable. We don't want to see a lot of students with 81% or 79% attendance, since that could be a sign that administrators manipulated the numbers to either push students into the program or out of the program. 
+
+First, make a histogram of the running variable and see if there are any big jumps around the threshold. Fill the histogram by `treatment` and add a vertical line at 80 (`geom_vline(xintercept = 80)`) to show the cutoff. Use an appropriate bin width. If the column near 80 is split into two different colors (it might be, since it might be showing 79 and 80 together), add `boundary = 80` inside `geom_histogram()` to force ggplot to start a bar at 80 and not include 79.
+
+**Does it look like there's an unexpected jump in the running variable around the cutoff?**
+
+There doesn't seem to be an unexpected jump around the cutoff.This seems to follow the shape of a normal distribution.
+
+```{r}
+# Histogram of attendance
+
+ggplot(program, aes(x= attendance, fill = treatment)) + 
+
+  geom_histogram(binwidth = 2, color = "white", boundary = 70) +
+  
+  geom_vline(xintercept = 80) + 
+  
+  labs( x = "Attendance", y = "Count", fill = "In program")
+
+
+
+
+```
+
+
+
+
+
+Next, conduct a McCrary density test with `rdplotdensity()` from the `rddensity` library. Refer to the in-class example for the syntax (you'll need to specify `rdd`, `X` (note that it's capitalized), and `type = "both"`). Also, if you don't want two plots to show up when you knit, make sure you assign the output of `rdplotdensity()` to a variable.
+
+**Is there a substantial jump at the cutpoint?**
+
+```{r}
+# McCrary test
+
+test_density1 <- rddensity(program$attendance, c = 80)
+summary(test_density1)
+
+```
+```{r}
+
+
+plot_density_test1 <- rdplotdensity(rdd = test_density1, 
+                                    X = program$attendance,
+                                    type = "both")
+  
+  
+  
+```
+
+
+The confidence intervals overlap and the p-value for the overlap size is 0.4384, which is bigger than .05. So we can say there is no manipulation. 
+
+
+
+
+# Step 4: Check for discontinuity in outcome across running variable
+
+Make a scatterplot with the running variable on the x-axis (`attendance`) and the outcome variable on the y-axis (`grade`), with the points colored by treatment (`treatment`). Make the points small (`size = 0.5` or something similar) and semitransparent (`alpha = 0.5` or something similar) since there are a lot of them. Add a vertical line at the cutoff point. Add two `geom_smooth()` lines: one using data before the cutoff and one using data after the cutoff. Make sure both lines use `method = "lm"`. Refer to the example for the code you need to do this.
+
+**Based on this graph, does the program have an effect? Is there a discontinuity in outcome around the cutpoint? Interpret the effect (or non-effect) of the program.**
+
+```{r}
+# Graph showing discontinuity in grades across levels of attendance
+
+ggplot(program, aes(x = attendance, y = grade, color = treatment)) +
+  geom_point(size = 0.5, alpha = 0.5) + 
+  geom_smooth(data = filter(program, attendance <= 80), method = "lm") + 
+  geom_smooth(data = filter(program, attendance > 80), method = "lm") + 
+ geom_vline(xintercept = 80) + 
+  labs(x = "Attendance", y = "grade", color = "Used attendance program")                  
+        
+
+
+```
+It seems like participating in the attendance program does boost final grades but it's pretty close.
+
+
+
+
+
+# Step 5: Measure the size of the effect
+
+Now you need to measure the size and statistical significance of the discontinuity. If there's a jump because of the program, how big is it and how much can we trust it? You'll do this two ways: (1) parametrically with linear regression and (2) nonparametrically with curvy lines and fancy econometrics algorithms built in to the `rdrobust()` function.
+
+## Parametric estimation
+
+Create a new dataset based on `program` that has a new variable in it named `attendance_centered`. This will be the value of `attendance` minus 80. This centers student attendance around the cutpoint (if a student had 85% attendance, they'd have a value of 5; if they had 70% attendance, they'd have a value of 10; etc.) and makes it easier to interpret the intercept coefficient in linear models since it shifts the y-intercept up to the cutpoint instead of zero.
+
+```{r}
+# Add column to program that centers attendance
+
+program_centered <- program %>%
+  mutate(attendance_centered= 
+           attendance - 80)
+
+```
+
+Run a regression model explaining `grade` with `attendance_centered + treatment(program)`:
+
+$$
+\text{Grade} = \beta_0 + \beta_1 \text{Attendance (centered)} + \beta_2 \text{Program} + \epsilon
+model1 <- lm(grade ~  attendance_centered + treatment, data= program2)
+summary(model1)
+
+$$
+
+
+Make sure you use the data frame that has your new `attendance_centered` variable.
+
+
+```{r}
+
+lm1 <- lm(grade ~ attendance_centered + treatment, data = program_centered)
+summary(lm1)
+```
+
+**Interpret the three coefficients. How big is the effect of the program? Is it statistically significant?**
+
+Intercept: predicted grade when attendance is 80 and when treatment is FALSE. People who have 80% attendance and didn't participate in the program have an average grade of 66.19
+
+attendance_centered: holding whether the student participated in the attendance program or not, for attendance point above 80, grade goes up by 1.55.
+
+Treatment: participating in the attendance program increases grade scores by 5.88 points. This is statistically significant at the p<.001 *** level.
+
+
+
+
+Now make two new datasets based on the one you made previously with the `attendance_centered` variable. Filter one so that it only contains observations where `attendance_centered` is between -5 and 5, and filter the other so that it only contains observations where `attendance_centered` is between -10 and 10. 
+
+Run the same model (`grade ~ attendance_centered + program`) using each of these data frames. Interpret the coefficients. Are they different from the model that uses the complete data?
+
+```{r}
+# Data and model with bandwidth = 5
+
+lm2 <- lm(grade ~ attendance_centered + treatment, data = filter(program_centered, 
+                                                                 attendance_centered >= -5 & 
+                                                                   attendance_centered <= 5))
+summary(lm2)
+
+
+```
+
+```{r}
+# Data and model with bandwidth = 10
+
+lm3 <- lm(grade ~ attendance_centered + treatment, data = filter(program_centered, 
+                                                                 attendance_centered >= -10 & 
+                                                                   attendance_centered <= 10))
+summary(lm3)
+
+
+
+
+```
+
+**Put all three models in a side-by-side table with `modelsummary()`. How does the coefficient for `program` change across the model specifications? How does the number of observations change? What advantages and disadvantages are there to restricting the data to ±5 or ±10 around the cutpoint? Which program effect do you believe the most? Why?**
+
+The coefficient for the effect of the attendance program goes up as we restrict it to people within a smaller window. I don't believe the full data coefficient, but I think I would believe the coefficient of the bandwidth=10 or 5. Either way, the coefficient is significant.
+
+Advantages to restricting the data to +-5 or +-10 is that we are comparing the outcomes to the cut-off right around 80%. These two groups are very similar in characteristics so looking at these two groups can approximate the treatment effect. The disadvantage is that we may be narrowing it down to a very small sample since n-size gets smaller from 1200 to around 330. So we need to pay attention to external validity and whether we can generalize results to the whole sample.
+
+
+THe number of observations goes down from 1200 to 330 when looking at the bandwidth=5, so we are limiting the program effect to very small margin of people who have an attendance just barely above and below 80.
+
+
+
+```{r}
+
+modelsummary(list("Full data" = lm1, 
+                  "Bandwidth = 10" = lm3,
+                  "Bandwidth = 5" = lm2))
+
+```
+## non-Parametric estimation
+
+
+
+```{r}
+
+rdrobust(y= program$grade, x= program$attendance, c= 80) %>% summary() # Coefficient is 12 points, default banwidth of 8.112
+
+
+  
+```
+
+The co-efficient here is 12, which is the measure of the gap at c= 80. The bandwidth here is 8.112.
+
+
+```{r}
+ rdplot(y= program$grade, x= program$attendance, c= 80)
+```
+
+
+
+```{r}
+
+rdrobust(y= program$grade, x= program$attendance, c= 80, 
+         h= 5) %>% summary() # Coefficient is 12.637 points
+ 
+```
+Non-parametric using a bandwidth of 5 is 12.637
+
+
+
+```{r}
+
+rdrobust(y= program$grade, x= program$attendance, c= 80, 
+         kernel = "epanechnikov") %>% summary()
+
+
+
+```
+Once we switch the kernel to "epanechnikov", the coefficient equals 11.910. The bandwidth here is 7.78. 
+
+
+
+
+
+
+
+
+# Step 6: Compare all the effects
+
+**Make a list of all the effects you found. Which one do you trust the most? Why?**
+
+Write them in this table if it's helpful:
+
+|     Method    | Bandwidth |        Kernel        | Estimate |
+|:-------------:|:---------:|:--------------------:|:--------:|
+|   Parametric  | Full data |      Unweighted      |  5.884   |
+|   Parametric  |     10    |      Unweighted      | 11.869   |
+|   Parametric  |     5     |      Unweighted      | 12.340   |
+| non-parametric|    8.112  |       Triangular     | 12.013   |
+| non-parametric|    5      |       Triangular     | 12.637   |
+| non-parametric|    7.78   |       Epanechnikov   |  11.910  |
+
+
+I would trust either the parametric bandwith of 5 or nonparametric bandwith of 5 because we are narrowing down observations to a cut-off range of +-5. I would not trust the full data coefficient. Both tests have the same co-efficient of 12, but it is safe to say that the effect of the attendance program on grades is at least 11-12 points just looking at all of our estimates. 
+
+**Does the program have an effect? Should it be rolled out to all schools? Why or why not?**
+
+Since the bandwidth coefficient of 10 and 5 showed a statistically significant relationship at the .01 *** level, and the non-parametric test showed similar results, 
+I would argue that yes, participating in the attendance program does increase grades by at least 11-12 points, depending on which banwidth we are looking at. I would roll this out knowing that attendance does boost grades, but it is also important to state that correlation does not always mean causation. Other factors can explain the boost of grades besides just attendance, but the program does have a strong effect.
+
+
+
+
