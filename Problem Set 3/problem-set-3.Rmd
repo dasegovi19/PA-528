@@ -1,0 +1,184 @@
+---
+title: "Problem set 3: Regression"
+author: "David Segovia"
+date: "10/11/22"
+output: 
+  html_document: 
+    toc: yes
+  pdf_document: 
+    latex_engine: xelatex
+    toc: yes
+  word_document: 
+    toc: yes
+---
+
+```{r setup, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(broom)
+library(modelsummary)
+
+
+# Load penguins data
+setwd("~/Downloads/PA 528 Public Program Evaluation/Problem Sets/PS3")
+penguins <- read_csv("penguins.csv")
+
+
+```
+
+# Task 1: Penguins
+
+Between 2007 and 2009, researchers collected data on penguins in three islands in the Palmer Archipelago in Antarctica: Biscoe, Dream, and Torgersen. The `penguins` dataset has data for 342 penguins from 3 different species: Chinstrap, Gentoo, and Adélie. It includes the following variables:
+
+- `species`: The penguin's species (Chinstrap, Gentoo, and Adélie)
+- `island`: The island where the penguin lives (Biscoe, Dream, and Torgersen)
+- `bill_length_mm`: The length of the penguin's bill, in millimeters (distance from the penguin's face to the tip of the bill)
+- `bill_depth_mm`: The depth of the penguin's bill, in millimeters (height of the bill; distance from the bottom of the bill to the top of the bill)
+- `flipper_length_mm`: The length of the penguin's flippers, in millimeters
+- `body_mass_g`: The weight of the penguin, in grams
+- `sex`: The sex of the penguin
+- `year`: The year the observation was made
+
+## Exploratory analysis
+
+# How related are penguin weight and bill depth?
+
+Penguin weight and bill depth seem to have a moderately strong, negative correlation. 
+
+```{r}
+# It's not possible to calculate correlations when there is missing data.
+# The `use = "complete.obs"` argument here tells R to ignore any
+# rows where either mortality_rate or pct_low_access_pop is missing
+
+cor(penguins$bill_depth_mm, penguins$body_mass_g,
+    use = "complete.obs")
+
+```
+
+ 
+
+```{r plot-penguin-weight-depth}
+ggplot(data = penguins, 
+       aes(x = bill_depth_mm, y = body_mass_g)) +
+  geom_point()
+```
+
+# Make a new plot that colors these points by species. What can you tell about the relationship between bill depth and penguin weight?
+
+
+```{r plot-penguin-weight-depth-by-species}
+ggplot(data = penguins, 
+       aes(x = bill_depth_mm, y = body_mass_g, color = species)) +
+  geom_point()
+
+
+
+```
+
+ For all penguin species "Adelie", "Chinstrap", and "Gentoo", the relationship between bill depth and penguin weight is positively correlated.
+As bill depth increases, so does weight. This relationship contrasts from the correlation earlier.
+
+# What is the relationship between flipper length and body mass? Make another plot with `flipper_length_mm` on the x-axis, `body_mass_g` on the y-axis, and points colored by `species`. Facet the plot by island (`island`)
+
+```{r}
+ggplot(data = penguins,
+       aes(x = flipper_length_mm, y = body_mass_g, color = species)) +
+  geom_point() +
+  facet_wrap(vars(island)) 
+
+
+
+```
+
+# Tell a story about the relationship between flipper length and weight in these three penguin species.
+
+In Biscoe Island, Gentoo and Adelie penguins exist. However, Gentoo species have a stronger relationship between body mass and flipper length, as Gentoo species are bigger in size and have bigger flippers. Dream Island seems to have Adelie and Chinstrap species. These two also have a positive relationship between body mass and flipper length. However, only Adelie penguins exist in Torgersen, and they have a positive relationship as well between flipper length and body mass. 
+
+
+
+
+# Tell a story about the distribution of penguins across the three islands.
+
+In Biscoe island, Gentoo and Adelie penguin species exist. In Dream island, Adelie and Chinstrap penguins exist. In Torgersen island, only Adelie penguins exist. Adelie penguins exist across all 3 islands. 
+
+
+## Models
+
+### Predicting weight with bill depth
+
+Does bill depth predict penguin weight?
+
+Yes, it does. It is statistically significant (p<.05) and the relationship is negative.
+
+```{r model-depth-weight}
+model_depth_weight <- lm(body_mass_g ~ bill_depth_mm,
+                         data = penguins)
+summary(model_depth_weight)
+tidy(model_depth_weight, conf.int = TRUE)
+```
+
+```{r model-details-depth-weight}
+glance(model_depth_weight)
+```
+
+INTERPRET THE COEFFICIENTS AND RESULTS HERE. What happens as bills get taller? Is the association statistically significant? How confident are you about these results? (Hint: look at the $R^2$)
+
+As bills get taller, weight decreases.For one mm increase in bill depth, weight decreases by 191.64 grams. This is statistically significant at the p<.001 level. We are 22.27% confident that this model accurately predicts  a penguin's weight.
+
+
+
+### Predicting weight with bill depth and flipper length
+
+RUN A MODEL that predicts weight with bill depth and flipper length (i.e. body_mass_g ~ bill_depth_mm + flipper_length_mm) 
+
+```{r model-weight-depth-flipper}
+model_depth_weight2 <- lm(body_mass_g ~ bill_depth_mm + flipper_length_mm,
+                         data = penguins)
+summary(model_depth_weight2)
+tidy(model_depth_weight2, conf.int = TRUE)
+```
+
+```{r model-details-weight-depth-flipper}
+glance(model_depth_weight2)
+```
+
+INTERPRET THESE RESULTS. Did the size of the bill depth coefficient change after controlling for flipper length?
+
+Yes. The size of bill depth went from negative to positive and smaller, and bill depth is no longer a predictor variable that predicts penguin weight when controlling for flipper length. In fact, flipper length became a significant predictor variable at the p<.001 level.
+
+
+
+
+### Predicting weight with bill depth, flipper length, and species
+
+RUN A MODEL that predicts weight with bill depth, flipper length, and species.
+
+```{r model-weight-depth-flipper-species}
+model_depth_weight3 <- lm(body_mass_g ~ bill_depth_mm + flipper_length_mm + species,
+                         data = penguins)
+summary(model_depth_weight3)
+tidy(model_depth_weight3, conf.int = TRUE)
+```
+
+```{r model-details-weight-depth-flipper-species}
+glance(model_depth_weight3)
+```
+
+INTERPRET THESE RESULTS. What do the species coefficients mean? Did the bill depth coefficient change after controlling for both flipper length and species?
+
+The species coefficients means that after controlling for bill depth and flipper length, species is a significant predictor variable that predicts penguin weight. The base group here is Adelie, so Adelie penguins weigh 131 grams more than Chinstrap penguins but 1288 grams less than Gentoo penguins. All of these variables are significant at  the .05 level *.  Bill depth coefficient, when controlling for species and flipper length, also became a significant predictor variable and is positive.
+
+This time, we are 83.2% confident that this model accurately predicts a penguin's weight.
+
+
+
+## All models at the same time
+
+```{r all-penguin-models}
+# Right now there's only one model here. Add the others from above (whatever you
+# called them) like so: 
+# modelsummary(list(model_depth_weight, some_other_model, yet_another_model, etc))
+ modelsummary(list(model_depth_weight,model_depth_weight2,model_depth_weight3))
+```
+
+
+
